@@ -1,0 +1,40 @@
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# ── UV ────────────────────────────────────────────────────────────
+.venv/
+# uv.lock é versionado — não ignore
+
+# ── Dados brutos (CSVs ANS — não versionar) ───────────────────────
+data/raw/*.csv
+data/raw/*.zip
+data/processed/
+
+# ── DuckDB staging (temporário) ───────────────────────────────────
+*.duckdb
+*.duckdb.wal
+
+# ── Logs Airflow ─────────────────────────────────────────────────
+logs/
+
+# ── Ambientes ────────────────────────────────────────────────────
+.env
+!.env.example
+
+# ── Notebooks checkpoints ─────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── SO ───────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

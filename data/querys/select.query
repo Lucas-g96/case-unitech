@@ -1,0 +1,256 @@
+-- ============================================================
+-- DASHBOARD UNIMED FORTALEZA 360°
+-- Queries para Power BI (colar em Consulta Nativa)
+-- Banco: unimed_dw | Schema: ans
+-- ============================================================
+
+
+-- ============================================================
+-- PÁGINA 1 — PANORAMA DE MERCADO
+-- ============================================================
+
+-- QUERY 1: Beneficiários por estado (visual: mapa coroplético)
+-- Nome sugerido no Power BI: "Beneficiarios_por_UF"
+-- ------------------------------------------------------------
+SELECT
+    f.uf,
+    SUM(f.qtd_beneficiarios)                          AS total_vidas,
+    SUM(SUM(f.qtd_beneficiarios)) OVER ()             AS total_mercado,
+    ROUND(
+        SUM(f.qtd_beneficiarios) * 100.0
+        / NULLIF(SUM(SUM(f.qtd_beneficiarios)) OVER (), 0), 2
+    )                                                 AS pct_mercado,
+    -- Destaque Unimed Fortaleza
+    SUM(CASE WHEN o.registro_ans = '317144'
+        THEN f.qtd_beneficiarios ELSE 0 END)          AS vidas_unimed_fortaleza,
+    EXTRACT(YEAR FROM f.sk_data)::INT                 AS ano,
+    EXTRACT(MONTH FROM f.sk_data)::INT                AS mes
+FROM ans.fact_beneficiarios f
+JOIN ans.dim_operadora o ON o.sk_operadora = f.sk_operadora
+WHERE f.uf IS NOT NULL
+GROUP BY f.uf, EXTRACT(YEAR FROM f.sk_data), EXTRACT(MONTH FROM f.sk_data)
+ORDER BY total_vidas DESC;
+
+
+-- ============================================================
+-- QUERY 2: Market Share por Modalidade de Operadora
+-- Nome sugerido no Power BI: "MarketShare_Modalidade"
+-- Uso: gráfico de rosca/barras — Unimeds vs outras modalidades
+-- ------------------------------------------------------------
+SELECT
+    o.modalidade,
+    -- Agrupa todas as Unimeds em uma categoria própria
+    CASE
+        WHEN o.nome_fantasia ILIKE '%unimed%' THEN 'Unimeds'
+        ELSE o.modalidade
+    END                                               AS grupo_modalidade,
+    EXTRACT(YEAR FROM f.sk_data)::INT                 AS ano,
+    f.uf                                              AS uf,
+    SUM(f.qtd_beneficiarios)                          AS total_vidas,
+    ROUND(
+        SUM(f.qtd_beneficiarios) * 100.0
+        / NULLIF(SUM(SUM(f.qtd_beneficiarios)) OVER (
+            PARTITION BY EXTRACT(YEAR FROM f.sk_data), f.uf
+          ), 0), 2
+    )                                                 AS market_share_pct
+FROM ans.fact_beneficiarios f
+JOIN ans.dim_operadora o ON o.sk_operadora = f.sk_operadora
+WHERE f.uf IS NOT NULL
+GROUP BY
+    o.modalidade,
+    CASE WHEN o.nome_fantasia ILIKE '%unimed%' THEN 'Unimeds' ELSE o.modalidade END,
+    EXTRACT(YEAR FROM f.sk_data),
+    f.uf
+ORDER BY total_vidas DESC;
+
+
+-- ============================================================
+-- QUERY 3: Base para filtros dinâmicos (Ano / UF / Tipo Contratação)
+-- Nome sugerido no Power BI: "Beneficiarios_Base"
+-- Uso: matriz/tabela com slicers de ano, uf e tipo_contratacao
+-- ------------------------------------------------------------
+SELECT
+    EXTRACT(YEAR FROM f.sk_data)::INT                 AS ano,
+    EXTRACT(MONTH FROM f.sk_data)::INT                AS mes,
+    c.nome_mes,
+    f.uf,
+    f.tipo_contratacao,
+    o.nome_fantasia,
+    o.modalidade,
+    o.registro_ans,
+    CASE WHEN o.registro_ans = '317144' THEN 'Unimed Fortaleza'
+         ELSE 'Mercado'
+    END                                               AS destaque,
+    SUM(f.qtd_beneficiarios)                          AS total_vidas
+FROM ans.fact_beneficiarios f
+JOIN ans.dim_operadora  o ON o.sk_operadora = f.sk_operadora
+JOIN ans.dim_calendario c ON c.sk_data = f.sk_data
+WHERE f.uf IS NOT NULL
+GROUP BY
+    EXTRACT(YEAR FROM f.sk_data),
+    EXTRACT(MONTH FROM f.sk_data),
+    c.nome_mes,
+    f.uf,
+    f.tipo_contratacao,
+    o.nome_fantasia,
+    o.modalidade,
+    o.registro_ans
+ORDER BY ano, mes, total_vidas DESC;
+
+
+-- ============================================================
+-- PÁGINA 2 — SAÚDE FINANCEIRA
+-- ============================================================
+
+-- QUERY 4: Receita vs Despesa Assistencial por operadora (sinistralidade)
+-- Nome sugerido no Power BI: "Sinistralidade"
+-- Uso: gráfico de barras agrupadas + linha de sinistralidade
+-- ------------------------------------------------------------
+SELECT
+    o.registro_ans,
+    COALESCE(o.nome_fantasia, o.razao_social)         AS nome_operadora,
+    o.modalidade,
+    o.uf                                              AS uf_operadora,
+    f.trimestre_ref,
+    EXTRACT(YEAR FROM f.sk_data)::INT                 AS ano,
+    EXTRACT(QUARTER FROM f.sk_data)::INT              AS trimestre,
+    CASE WHEN o.registro_ans = '317144' THEN 'Unimed Fortaleza'
+         ELSE 'Mercado'
+    END                                               AS destaque,
+
+    -- Receita assistencial
+    SUM(CASE WHEN f.grupo_conta = 'RECEITA_EVENTOS'
+        THEN f.vl_saldo_final ELSE 0 END)             AS receita_assistencial,
+
+    -- Despesa assistencial
+    SUM(CASE WHEN f.grupo_conta = 'DESPESA_ASSISTENCIAL'
+        THEN f.vl_saldo_final ELSE 0 END)             AS despesa_assistencial,
+
+    -- Sinistralidade %
+    ROUND(
+        SUM(CASE WHEN f.grupo_conta = 'DESPESA_ASSISTENCIAL'
+            THEN f.vl_saldo_final ELSE 0 END) * 100.0
+        / NULLIF(SUM(CASE WHEN f.grupo_conta = 'RECEITA_EVENTOS'
+            THEN f.vl_saldo_final ELSE 0 END), 0), 2
+    )                                                 AS sinistralidade_pct,
+
+    -- Resultado (receita - despesa)
+    SUM(CASE WHEN f.grupo_conta = 'RECEITA_EVENTOS'
+        THEN f.vl_saldo_final ELSE 0 END)
+    - SUM(CASE WHEN f.grupo_conta = 'DESPESA_ASSISTENCIAL'
+        THEN f.vl_saldo_final ELSE 0 END)             AS resultado_assistencial
+
+FROM ans.fact_financeiro f
+JOIN ans.dim_operadora o ON o.sk_operadora = f.sk_operadora
+GROUP BY
+    o.registro_ans,
+    COALESCE(o.nome_fantasia, o.razao_social),
+    o.modalidade,
+    o.uf,
+    f.trimestre_ref,
+    EXTRACT(YEAR FROM f.sk_data),
+    EXTRACT(QUARTER FROM f.sk_data),
+    CASE WHEN o.registro_ans = '317144' THEN 'Unimed Fortaleza' ELSE 'Mercado' END
+ORDER BY receita_assistencial DESC;
+
+
+-- ============================================================
+-- QUERY 5: Top 10 operadoras mais lucrativas vs que mais perdem vidas
+-- Nome sugerido no Power BI: "Top10_Operadoras"
+-- Uso: dois visuais de barras horizontais lado a lado
+-- ------------------------------------------------------------
+WITH sinistro AS (
+    SELECT
+        o.registro_ans,
+        COALESCE(o.nome_fantasia, o.razao_social)     AS nome_operadora,
+        o.modalidade,
+        o.uf                                          AS uf_operadora,
+
+        SUM(CASE WHEN f.grupo_conta = 'RECEITA_EVENTOS'
+            THEN f.vl_saldo_final ELSE 0 END)         AS receita,
+
+        SUM(CASE WHEN f.grupo_conta = 'DESPESA_ASSISTENCIAL'
+            THEN f.vl_saldo_final ELSE 0 END)         AS despesa,
+
+        SUM(CASE WHEN f.grupo_conta = 'RECEITA_EVENTOS'
+            THEN f.vl_saldo_final ELSE 0 END)
+        - SUM(CASE WHEN f.grupo_conta = 'DESPESA_ASSISTENCIAL'
+            THEN f.vl_saldo_final ELSE 0 END)         AS resultado
+
+    FROM ans.fact_financeiro f
+    JOIN ans.dim_operadora o ON o.sk_operadora = f.sk_operadora
+    GROUP BY o.registro_ans, COALESCE(o.nome_fantasia, o.razao_social), o.modalidade, o.uf
+),
+ranked AS (
+    SELECT *,
+        ROW_NUMBER() OVER (ORDER BY resultado DESC) AS rank_lucrativo,
+        ROW_NUMBER() OVER (ORDER BY resultado ASC)  AS rank_prejuizo
+    FROM sinistro
+    WHERE receita > 0
+)
+SELECT
+    registro_ans,
+    nome_operadora,
+    modalidade,
+    uf_operadora,
+    receita,
+    despesa,
+    resultado,
+    rank_lucrativo,
+    rank_prejuizo,
+    CASE
+        WHEN rank_lucrativo <= 10 THEN 'Top 10 Lucrativas'
+        WHEN rank_prejuizo  <= 10 THEN 'Top 10 Prejuízo'
+    END                                               AS categoria,
+    CASE WHEN registro_ans = '317144' THEN 'Unimed Fortaleza'
+         ELSE 'Outras'
+    END                                               AS destaque
+FROM ranked
+WHERE rank_lucrativo <= 10 OR rank_prejuizo <= 10
+ORDER BY resultado DESC;
+
+
+-- ============================================================
+-- QUERY 6: Card de sinistralidade Unimed Fortaleza (vermelho/verde)
+-- Nome sugerido no Power BI: "Card_Sinistralidade_UF"
+-- Uso: cartão KPI com formatação condicional > 90% = vermelho
+-- ------------------------------------------------------------
+SELECT
+    '317144'                                          AS registro_ans,
+    'UNIMED DE FORTALEZA'                             AS nome_operadora,
+    'CE'                                              AS uf,
+    f.trimestre_ref,
+    EXTRACT(YEAR FROM f.sk_data)::INT                 AS ano,
+    EXTRACT(QUARTER FROM f.sk_data)::INT              AS trimestre,
+
+    SUM(CASE WHEN f.grupo_conta = 'RECEITA_EVENTOS'
+        THEN f.vl_saldo_final ELSE 0 END)             AS receita,
+
+    SUM(CASE WHEN f.grupo_conta = 'DESPESA_ASSISTENCIAL'
+        THEN f.vl_saldo_final ELSE 0 END)             AS despesa,
+
+    ROUND(
+        SUM(CASE WHEN f.grupo_conta = 'DESPESA_ASSISTENCIAL'
+            THEN f.vl_saldo_final ELSE 0 END) * 100.0
+        / NULLIF(SUM(CASE WHEN f.grupo_conta = 'RECEITA_EVENTOS'
+            THEN f.vl_saldo_final ELSE 0 END), 0), 2
+    )                                                 AS sinistralidade_pct,
+
+    -- Flag para formatação condicional no Power BI
+    -- 1 = verde (saudável), 0 = vermelho (crítico)
+    CASE
+        WHEN
+            SUM(CASE WHEN f.grupo_conta = 'DESPESA_ASSISTENCIAL'
+                THEN f.vl_saldo_final ELSE 0 END) * 100.0
+            / NULLIF(SUM(CASE WHEN f.grupo_conta = 'RECEITA_EVENTOS'
+                THEN f.vl_saldo_final ELSE 0 END), 0)
+            <= 90 THEN 1
+        ELSE 0
+    END                                               AS flag_saudavel
+
+FROM ans.fact_financeiro f
+WHERE f.sk_operadora = (
+    SELECT sk_operadora FROM ans.dim_operadora WHERE registro_ans = '317144'
+)
+GROUP BY f.trimestre_ref, EXTRACT(YEAR FROM f.sk_data), EXTRACT(QUARTER FROM f.sk_data)
+ORDER BY ano, trimestre;

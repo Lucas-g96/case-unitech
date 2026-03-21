@@ -1,0 +1,49 @@
+[project]
+name = "unimed-fortaleza-360"
+version = "0.1.0"
+description = "Painel 360° Unimed Fortaleza — ETL com DuckDB → PostgreSQL, orquestrado por Airflow"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Data Team" }]
+
+dependencies = [
+    "duckdb>=1.2.0",
+    "pandas>=2.2.0",
+    "sqlalchemy>=2.0.0",
+    "psycopg2-binary>=2.9.9",
+    "apache-airflow>=2.10.4",
+    "python-dotenv>=1.0.0",
+    "loguru>=0.7.2",
+    "pyarrow>=15.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "ipykernel>=6.29.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/unimed_etl"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=src/unimed_etl --cov-report=term-missing"
