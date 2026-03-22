@@ -127,7 +127,8 @@ def transform_operadoras(df_raw: pd.DataFrame) -> pd.DataFrame:
     df["registro_ans"]  = df["registro_ans"].astype(str).str.strip().str.zfill(6)
     df["uf"]            = df["uf"].astype(str).str.strip().str.upper().str[:2]
     df["modalidade"]    = df["modalidade"].astype(str).str.strip()
-    df["nome_fantasia"] = df["nome_fantasia"].astype(str).str.strip().replace("nan", None)
+    df["nome_fantasia"] = df["nome_fantasia"].astype(str).str.strip()
+    df.loc[df["nome_fantasia"].str.upper() == "NAN", "nome_fantasia"] = None
     df["razao_social"]  = df["razao_social"].astype(str).str.strip()
     df["data_registro"] = pd.to_datetime(df["data_registro"], errors="coerce").dt.date
 

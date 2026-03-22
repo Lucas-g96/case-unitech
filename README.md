@@ -68,18 +68,15 @@ CSVs ANS (raw)
 ## Modelagem de Dados (Star Schema)
 
 ```
-                    dim_calendario
-                    (sk_data PK)
-                          │
-          ┌───────────────┼───────────────┐
-          │               │               │
-   fact_financeiro  fact_beneficiarios    │
-   (sk_data FK)     (sk_data FK)          │
-   (sk_operadora FK)(sk_operadora FK)     │
-                    (sk_produto FK)       │
-          │               │
-   dim_operadora    dim_produto
-   (sk_operadora PK)(sk_produto PK)
+              dim_calendario          dim_operadora        dim_produto
+              (sk_data PK)           (sk_operadora PK)    (sk_produto PK)
+                   │  │                    │  │                  │
+                   │  └────────────────────┘  │                  │
+                   │         │                │                  │
+            fact_financeiro  │      fact_beneficiarios ──────────┘
+            (sk_data FK)     │      (sk_data FK)
+            (sk_operadora FK)└───── (sk_operadora FK)
+                                    (sk_produto FK)
 ```
 
 ### Tabelas
@@ -172,7 +169,6 @@ start
 ### 1. Clonar e configurar
 
 ```bash
-git clone <repo>
 cd unimed-fortaleza-360
 cp .env.example .env
 ```
@@ -231,7 +227,7 @@ GROUP BY tabela;
 | Porta | `5432` |
 | Banco | `unimed_dw` |
 | Usuário | `dw_user` |
-| Senha | `dw_password` |
+| Senha | conforme `.env` (`dw_password` por padrão) |
 | Schema | `ans` |
 
 ### Tabelas a importar
@@ -353,6 +349,18 @@ Resultado Unimed Fortaleza =
 - 352.715 beneficiários ativos
 - R$ 65,8 bilhões em movimentação financeira
 - Sinistralidade: 121,06% (3T2025)
+
+---
+
+## Decisões Técnicas
+
+Durante o desenvolvimento foram enfrentados e resolvidos alguns desafios relevantes:
+
+- **Encoding dos CSVs da ANS** — arquivos em latin-1 não suportados diretamente pelo DuckDB; resolvido com auto-detecção de encoding via `read_csv_auto`.
+- **Incompatibilidade SQLAlchemy 2.0 + pandas** — `to_sql` e `read_sql` do pandas não aceitam `Connection` do SQLAlchemy 2.0; toda a carga foi reescrita com `conn.execute(text(...), records)` nativo.
+- **XCom + pandas** — o Airflow serializa dados entre tasks como JSON; pandas interpretava JSONs grandes como filepath; corrigido com `pd.read_json(io.StringIO(raw_json), orient="split")` em todas as tasks.
+- **Tipo mismatch no merge** — após desserialização do XCom, `registro_ans` voltava como `int64` quebrando o JOIN com a dimensão; corrigido forçando `.astype(str).str.zfill(6)` em ambos os lados.
+- **Idempotência** — dimensões usam upsert (`ON CONFLICT DO UPDATE`) e facts usam DELETE por competência/trimestre antes do INSERT, garantindo que a DAG possa rodar múltiplas vezes sem duplicar dados.
 
 ---
 

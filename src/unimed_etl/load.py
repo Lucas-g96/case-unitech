@@ -111,6 +111,14 @@ def load_dim_operadora(df: pd.DataFrame) -> pd.DataFrame:
         df_sk = pd.DataFrame(result.fetchall(), columns=result.keys())
 
     df_out = df.merge(df_sk, on="registro_ans", how="left")
+
+    # Garante que strings 'NaN'/'nan' virem NULL no banco
+    with engine.begin() as conn:
+        conn.execute(text(
+            f"UPDATE {TABLES['dim_operadora']} SET nome_fantasia = NULL "
+            f"WHERE UPPER(nome_fantasia) = 'NAN'"
+        ))
+
     logger.success("[LOAD] dim_operadora ✓")
     return df_out
 
